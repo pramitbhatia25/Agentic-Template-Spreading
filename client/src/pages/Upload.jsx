@@ -408,8 +408,26 @@ function Upload({ user }) {
             onClick={handleExtract}
             disabled={isUploading || !templateFile || pdfFiles.length === 0}
             className="w-full bg-green-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+            title={
+              isUploading 
+                ? 'Creating extraction request...' 
+                : !templateFile 
+                  ? 'Please upload a template file' 
+                  : pdfFiles.length === 0 
+                    ? 'Please upload at least one PDF file' 
+                    : 'Click to extract data from PDFs'
+            }
           >
-            {isUploading ? 'Creating Request...' : 'Extract'}
+            {isUploading ? (
+              <span className="flex items-center justify-center gap-2">
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                Creating Request...
+              </span>
+            ) : !templateFile || pdfFiles.length === 0 ? (
+              'Extract (Upload files first)'
+            ) : (
+              'Extract'
+            )}
           </button>
         </div>
 
