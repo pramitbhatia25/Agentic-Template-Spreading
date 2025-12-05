@@ -6,6 +6,8 @@ from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 from google.cloud import firestore
 from google.cloud import storage
+from google.cloud import run_v2
+from google.cloud.run_v2.types import RunJobRequest, EnvVar
 from google.oauth2 import service_account
 import json
 import os
@@ -27,6 +29,8 @@ GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "YOUR_GOOGLE_CLIENT_ID")
 FIREBASE_SERVICE_ACCOUNT = os.environ.get("FIREBASE_SERVICE_ACCOUNT")
 PROJECT_ID = os.environ.get("PROJECT_ID")
 STORAGE_BUCKET = os.environ.get("STORAGE_BUCKET")
+CLOUD_RUN_JOB_ID = os.environ.get("CLOUD_RUN_JOB_ID", "agentic-template-spreading-agent")
+CLOUD_RUN_LOCATION = os.environ.get("CLOUD_RUN_LOCATION", "us-central1")
 
 def get_firestore_client():
     """Return Firestore client using service account JSON from env."""
@@ -746,6 +750,83 @@ def download_output(request_id):
         import traceback
         traceback.print_exc()
         return jsonify({"error": "Failed to download solution file"}), 500
+
+@app.route('/api/requests/<request_id>/trigger', methods=['POST'])
+@require_token
+def trigger_cloud_run_job(request_id):
+    """Trigger the Cloud Run job for a specific request."""
+    try:
+        email = request.user_email
+        print(f"[POST /api/requests/<request_id>/trigger] Request from user: {email}, request_id: {request_id}")
+        
+        # Verify the request exists and belongs to this user
+        client = get_firestore_client()
+        doc_ref = client.collection('extraction_requests').document(request_id)
+        doc = doc_ref.get()
+        
+        if not doc.exists:
+            return jsonify({"error": "Request not found"}), 404
+        
+        data = doc.to_dict()
+        
+        # Verify the request belongs to this user
+        if data.get('user_email') != email:
+            return jsonify({"error": "Unauthorized"}), 403
+        
+        # Trigger Cloud Run job
+        try:
+            # Create environment variable override for REQUEST_ID
+            env_var_override = EnvVar(name="REQUEST_ID", value=request_id)
+            
+            # Create the container override with the environment variable
+            container_override = RunJobRequest.Overrides.ContainerOverride(
+                env=[env_var_override]
+            )
+            
+            # Create the overrides object
+            overrides = RunJobRequest.Overrides(
+                container_overrides=[container_override]
+            )
+            
+            # Create the RunJobRequest
+            job_name = f"projects/{PROJECT_ID}/locations/{CLOUD_RUN_LOCATION}/jobs/{CLOUD_RUN_JOB_ID}"
+            run_job_request = RunJobRequest(
+                name=job_name,
+                overrides=overrides
+            )
+            
+            # Initialize the Run client using service account
+            run_client = run_v2.JobsClient.from_service_account_info(
+                json.loads(FIREBASE_SERVICE_ACCOUNT)
+            )
+            
+            # Run the job
+            print(f"[POST /api/requests/<request_id>/trigger] Triggering Cloud Run job: {job_name}")
+            print(f"[POST /api/requests/<request_id>/trigger] REQUEST_ID override: {request_id}")
+            operation = run_client.run_job(request=run_job_request)
+            print(f"[POST /api/requests/<request_id>/trigger] Cloud Run job triggered successfully")
+            
+            return jsonify({
+                "message": "Cloud Run job triggered successfully",
+                "requestId": request_id,
+                "operation": operation.name if hasattr(operation, 'name') else None
+            }), 200
+            
+        except Exception as job_error:
+            error_str = str(job_error)
+            print(f"[POST /api/requests/<request_id>/trigger] ERROR triggering Cloud Run job: {error_str}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({
+                "error": "Failed to trigger Cloud Run job",
+                "details": error_str
+            }), 500
+        
+    except Exception as e:
+        print(f"[POST /api/requests/<request_id>/trigger] ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": "Failed to trigger Cloud Run job"}), 500
 
 if __name__ == '__main__':
     print(f"[APP] Starting Flask server on host=0.0.0.0, port=5000, debug=True")

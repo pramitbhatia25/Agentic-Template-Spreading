@@ -21,6 +21,18 @@ function Upload({ user }) {
     }
   }, [user, requestId]);
 
+  // Polling: Refresh requests every 30 seconds
+  useEffect(() => {
+    if (!user) return;
+
+    const intervalId = setInterval(() => {
+      loadRequests();
+    }, 30000); // 30 seconds
+
+    // Cleanup interval on unmount
+    return () => clearInterval(intervalId);
+  }, [user]);
+
   const loadRequests = async () => {
     setLoadingRequests(true);
     try {
@@ -170,6 +182,28 @@ function Upload({ user }) {
       }
 
       setRequestId(data.requestId);
+      
+      // Trigger Cloud Run job
+      try {
+        const triggerResponse = await fetch(`${VITE_APP_API_URL}/api/requests/${data.requestId}/trigger`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${user.token}`
+          }
+        });
+
+        if (!triggerResponse.ok) {
+          const triggerError = await triggerResponse.json().catch(() => ({}));
+          console.error('Failed to trigger Cloud Run job:', triggerError);
+          // Don't fail the whole request, just log the error
+        } else {
+          console.log('Cloud Run job triggered successfully');
+        }
+      } catch (triggerErr) {
+        console.error('Error triggering Cloud Run job:', triggerErr);
+        // Don't fail the whole request, just log the error
+      }
+      
       // Reset form
       setTemplateFile(null);
       setPdfFiles([]);
@@ -223,6 +257,34 @@ function Upload({ user }) {
       return date.toLocaleString();
     } catch {
       return dateString;
+    }
+  };
+
+  const calculateTimeToCompletion = (createdAt, updatedAt) => {
+    if (!createdAt || !updatedAt) return null;
+    try {
+      const created = new Date(createdAt);
+      const updated = new Date(updatedAt);
+      const diffMs = updated - created;
+      
+      if (diffMs < 0) return null;
+      
+      const seconds = Math.floor(diffMs / 1000);
+      const minutes = Math.floor(seconds / 60);
+      const hours = Math.floor(minutes / 60);
+      const days = Math.floor(hours / 24);
+      
+      if (days > 0) {
+        return `${days}d ${hours % 24}h ${minutes % 60}m`;
+      } else if (hours > 0) {
+        return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
+      } else if (minutes > 0) {
+        return `${minutes}m ${seconds % 60}s`;
+      } else {
+        return `${seconds}s`;
+      }
+    } catch {
+      return null;
     }
   };
 
@@ -345,7 +407,7 @@ function Upload({ user }) {
           <button
             onClick={handleExtract}
             disabled={isUploading || !templateFile || pdfFiles.length === 0}
-            className="w-full bg-green-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full bg-green-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
           >
             {isUploading ? 'Creating Request...' : 'Extract'}
           </button>
@@ -358,9 +420,9 @@ function Upload({ user }) {
             <button
               onClick={loadRequests}
               disabled={loadingRequests}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors cursor-pointer"
             >
-              <RefreshCw className={`w-4 h-4 ${loadingRequests ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-4 h-4 cursor-pointer ${loadingRequests ? 'animate-spin' : ''}`} />
               Refresh
             </button>
           </div>
@@ -397,7 +459,7 @@ function Upload({ user }) {
                               </>
                             ) : (
                               <>
-                                <Download className="w-3.5 h-3.5" />
+                                <Download className="w-3.5 h-3.5 cursor-pointer" />
                                 Download
                               </>
                             )}
@@ -408,16 +470,21 @@ function Upload({ user }) {
                         <p>Template: {req.template_filename || 'N/A'}</p>
                         <p>PDFs: {req.pdf_count || 0}</p>
                         <p>Created: {formatDate(req.created_at)}</p>
+                        {(req.status === 'complete' || req.status === 'completed') && req.created_at && req.updated_at && (
+                          <p className="text-green-700 font-medium">
+                            Completed in: {calculateTimeToCompletion(req.created_at, req.updated_at) || 'N/A'}
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => refreshRequest(req.requestId)}
                         disabled={refreshingIds.has(req.requestId)}
-                        className="p-2 text-gray-600 hover:text-green-600 hover:bg-gray-100 rounded transition-colors disabled:opacity-50"
+                        className="p-2 text-gray-600 hover:text-green-600 hover:bg-gray-100 rounded transition-colors disabled:opacity-50 cursor-pointer"
                         title="Refresh status"
                       >
-                        <RefreshCw className={`w-4 h-4 ${refreshingIds.has(req.requestId) ? 'animate-spin' : ''}`} />
+                        <RefreshCw className={`w-4 h-4 cursor-pointer ${refreshingIds.has(req.requestId) ? 'animate-spin' : ''}`} />
                       </button>
                     </div>
                   </div>

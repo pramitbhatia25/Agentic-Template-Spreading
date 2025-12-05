@@ -3,5 +3,6 @@ flask-cors
 google-auth
 google-cloud-firestore
 google-cloud-storage
+google-cloud-run
 gunicorn
 python-dotenv
