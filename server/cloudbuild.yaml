@@ -1,0 +1,37 @@
+steps:
+  # Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Build the container image'
+    args:
+      - 'build'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/agentic-template-spreading/agentic-template-spreading-server:latest'
+      - server
+      - '-f'
+      - server/Dockerfile
+
+  # Push the container image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Push the container image'
+    args:
+      - 'push'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/agentic-template-spreading/agentic-template-spreading-server:latest'
+
+  # Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'Deploy to Cloud Run'
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE_NAME}
+      - --image=us-central1-docker.pkg.dev/$PROJECT_ID/agentic-template-spreading/agentic-template-spreading-server:latest
+      - --region=us-central1
+      - --platform=managed
+      - --service-account=ats-deploy@agentic-template-spreading.iam.gserviceaccount.com
+
+images:
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/agentic-template-spreading/agentic-template-spreading-server:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

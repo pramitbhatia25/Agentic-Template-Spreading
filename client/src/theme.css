@@ -1,0 +1,331 @@
+.theme-dark .bg-white {
+  background-color: black !important;
+  border-color: black !important;
+}
+
+.theme-dark ::-webkit-scrollbar-track {
+  background: black !important; /* black track for sidebar */
+}
+
+.theme-dark .border-gray-200 {
+  border-color: #1f2937 !important; /* gray-700 - darker than gray-600 */
+  box-shadow: 0 1px 3px rgba(255, 255, 255, 0.2) !important; /* White shadow */
+}
+
+.theme-dark .sidebar {
+  background-color: #1f2937 !important; /* gray-800 - dark gray */
+}
+
+.theme-dark .border-gray-100 {
+  border-color: black !important;
+}
+
+.theme-dark .text-gray-900 {
+  color: #f9fafb !important;
+}
+
+.theme-dark .text-gray-700 {
+  color: #d1d5db !important;
+}
+
+.theme-dark .text-gray-500 {
+  color: #9ca3af !important;
+}
+
+.theme-dark .text-gray-400 {
+  color: #6b7280 !important;
+}
+
+.theme-dark .text-red-600 {
+  color: #f87171 !important;
+}
+
+.theme-dark .text-green-600 {
+  color: #34d399 !important;
+}
+
+/* Range bars */
+.theme-dark .bg-orange-200 {
+  background-color: black !important;
+}
+
+.theme-dark .bg-gradient-to-r.from-orange-400.to-orange-500 {
+  background: linear-gradient(to right, #f97316, #ea580c) !important;
+}
+
+.theme-dark .border-orange-500 {
+  border-color: #ea580c !important;
+}
+
+/* Links */
+.theme-dark .text-orange-700 {
+  color: #fb923c !important;
+}
+
+.theme-dark .text-orange-700:hover {
+  color: #f97316 !important;
+}
+
+/* Show more/less button */
+.theme-dark button.text-orange-700 {
+  color: #fb923c !important;
+}
+
+.theme-dark button.text-orange-700:hover {
+  color: #f97316 !important;
+}
+
+/* Divider lines */
+.theme-dark .bg-gray-100 {
+  background-color: #2b3139 !important;
+}
+
+/* Loading and error states */
+.theme-dark .bg-gray-50 {
+  background-color: black !important;
+}
+
+.theme-dark .text-red-400 {
+  color: #f87171 !important;
+}
+
+/* Chart container adjustments */
+.theme-dark .chart-container {
+  background-color: #1f2937 !important;
+  border-color: #374151 !important;
+}
+
+/* Icon colors */
+.theme-dark .text-gray-500 svg {
+  color: #9ca3af !important;
+}
+
+/* Ensure proper contrast for accessibility */
+.theme-dark .text-xs {
+  color: #9ca3af !important;
+}
+
+.theme-dark .text-sm {
+  color: #d1d5db !important;
+}
+
+.theme-dark .font-semibold {
+  color: #f9fafb !important;
+}
+
+/* Smooth transitions */
+.theme-dark * {
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+}
+
+/* Active navigation links - green gradient like Pro button */
+.theme-dark nav a[href="/dashboard"].text-green-600,
+.theme-dark nav a[href="/portfolio"].text-green-600 {
+  background: linear-gradient(to right, #16a34a, #15803d) !important; /* green-600 to green-700 gradient */
+  color: white !important;
+  border: none !important;
+}
+
+/* Inactive navigation links - black background with gray text like moon button */
+.theme-dark nav a[href="/dashboard"]:not(.text-green-600),
+.theme-dark nav a[href="/portfolio"]:not(.text-green-600) {
+  background-color: black !important;
+  color: #6b7280 !important; /* gray-500 - same as moon button */
+  border: none !important;
+}
+
+.theme-dark nav a[href="/dashboard"]:not(.text-green-600):hover,
+.theme-dark nav a[href="/portfolio"]:not(.text-green-600):hover {
+  background-color: #1a1a1a !important; /* slightly lighter black */
+  color: #9ca3af !important; /* gray-400 - lighter gray on hover */
+}
+
+/* Mobile navigation - same logic */
+.theme-dark .fixed.left-0.top-0 a[href="/dashboard"].text-green-700,
+.theme-dark .fixed.left-0.top-0 a[href="/portfolio"].text-green-700 {
+  background: linear-gradient(to right, #16a34a, #15803d) !important;
+  color: white !important;
+}
+
+.theme-dark .fixed.left-0.top-0 a[href="/dashboard"]:not(.text-green-700),
+.theme-dark .fixed.left-0.top-0 a[href="/portfolio"]:not(.text-green-700) {
+  background-color: black !important;
+  color: #6b7280 !important;
+}
+
+.theme-dark .fixed.left-0.top-0 a[href="/dashboard"]:not(.text-green-700):hover,
+.theme-dark .fixed.left-0.top-0 a[href="/portfolio"]:not(.text-green-700):hover {
+  background-color: #1a1a1a !important;
+  color: #9ca3af !important;
+}
+
+/* Icon colors for Portfolio component */
+.theme-dark .text-green-600 {
+  color: #34d399 !important; /* emerald-400 - bright green for dark mode */
+}
+
+.theme-dark .text-gray-400 {
+  color: #6b7280 !important; /* gray-500 - slightly lighter for better contrast */
+}
+
+.theme-dark .text-gray-500 {
+  color: #9ca3af !important; /* gray-400 - lighter gray for better visibility */
+}
+
+/* Specific icon styling for better dark mode contrast */
+.theme-dark .w-3\.5.h-3\.5.text-green-600,
+.theme-dark .w-6.h-6.text-green-600,
+.theme-dark .w-8.h-8.text-green-600 {
+  color: #34d399 !important;
+}
+
+.theme-dark .w-4.h-4.text-gray-400 {
+  color: #6b7280 !important;
+}
+
+/* Ensure SVG icons inherit the text color properly in dark mode */
+.theme-dark svg {
+  color: inherit !important;
+}
+
+/* Icon containers with green backgrounds */
+.theme-dark .bg-green-50 {
+  background-color: #064e3b !important; /* emerald-900 - dark green background */
+}
+
+.theme-dark .bg-green-100 {
+  background-color: #065f46 !important; /* emerald-800 - slightly lighter dark green */
+}
+
+
+/* Chatbot Dark Mode - White Text and Header */
+.theme-dark .text-gray-900 {
+  color: white !important;
+}
+
+.theme-dark .text-gray-700 {
+  color: white !important;
+}
+
+.theme-dark .text-gray-500 {
+  color: white !important;
+}
+
+.theme-dark .text-gray-400 {
+  color: white !important;
+}
+
+/* Chatbot Dark Mode - White Text in Bubbles and Input */
+.theme-dark .text-gray-800 {
+  color: white !important;
+}
+
+.theme-dark input[type="text"] {
+  color: white !important;
+}
+
+.theme-dark input[type="text"]::placeholder {
+  color: #9ca3af !important; /* Keep placeholder slightly gray for contrast */
+}
+
+/* Chatbot Dark Mode - White Text in Bubbles */
+.theme-dark .text-gray-800 {
+  color: white !important;
+}
+
+.theme-dark .text-xs {
+  color: white !important;
+}
+
+.theme-dark .text-[9px] {
+  color: white !important;
+}
+
+
+/* Chatbot Open/Close Button - Complete Dark Mode Styling */
+.theme-dark .p-1.text-gray-400 {
+  color: #6b7280 !important; /* gray-500 */
+  background-color: transparent !important;
+}
+
+.theme-dark .p-1.text-gray-400:hover {
+  color: #d1d5db !important; /* gray-300 */
+  background-color: #374151 !important; /* gray-700 */
+}
+
+.theme-dark .p-1.text-gray-600 {
+  color: #6b7280 !important; /* gray-500 */
+  background-color: transparent !important;
+}
+
+.theme-dark .p-1.text-gray-600:hover {
+  color: #d1d5db !important; /* gray-300 */
+  background-color: #374151 !important; /* gray-700 */
+}
+
+.theme-dark .p-2.text-gray-600 {
+  color: #6b7280 !important; /* gray-500 */
+  background-color: transparent !important;
+}
+
+.theme-dark .p-2.text-gray-600:hover {
+  color: #d1d5db !important; /* gray-300 */
+  background-color: #374151 !important; /* gray-700 */
+}
+
+.theme-dark .border-gray-200 {
+  border-color: #1f2937 !important; /* gray-700 - darker than gray-600 */
+  box-shadow: 0 1px 3px rgba(255, 255, 255, 0.2) !important; /* White shadow */
+}
+
+
+/* Fix watchlist hover - prevent white background in dark mode */
+.theme-dark .hover\:bg-gray-50:hover {
+  background-color: #1f2937 !important; /* gray-800 - dark gray instead of white */
+}
+
+.theme-dark .hover\:bg-gray-100:hover {
+  background-color: #1f2937 !important; /* gray-800 - dark gray instead of white */
+}
+
+/* Fix the white shadow in dark mode */
+.theme-dark .border-gray-200 {
+  border-color: #1f2937 !important; /* gray-700 - darker than gray-600 */
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3) !important; /* Dark shadow instead of white */
+}
+
+/* Style the Edit button to match chatbot button styling */
+.theme-dark .border-gray-300 {
+  border-color: #4b5563 !important; /* gray-600 */
+}
+
+.theme-dark .text-gray-700 {
+  color: #d1d5db !important; /* gray-300 */
+}
+
+.theme-dark .hover\:bg-gray-50:hover {
+  background-color: #374151 !important; /* gray-700 */
+}
+
+/* Additional dark mode improvements for watchlist */
+
+.theme-dark .border-gray-50 {
+  border-color: #374151 !important; /* gray-700 */
+}
+
+/* Mobile search button - match other mobile icons */
+.theme-dark button.md\:hidden.p-1\.5.text-gray-600 {
+  color: #6b7280 !important; /* gray-500 - same as other mobile icons */
+  background-color: transparent !important;
+}
+
+.theme-dark button.md\:hidden.p-1\.5.text-gray-600:hover {
+  color: #9ca3af !important; /* gray-400 - same hover color as other mobile icons */
+  background-color: #1a1a1a !important; /* same hover background as other mobile icons */
+}
+
+/* Active state for mobile search button */
+.theme-dark button.md\:hidden.p-1\.5.text-green-600 {
+  background: linear-gradient(to right, #16a34a, #15803d) !important;
+  color: white !important;
+}

@@ -1,0 +1,24 @@
+steps:
+  # Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Build the container image'
+    args:
+      - 'build'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/agentic-template-spreading/agentic-template-spreading-agent:latest'
+      - .
+      - '-f'
+      - Dockerfile
+
+  # Push the container image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Push the container image'
+    args:
+      - 'push'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/agentic-template-spreading/agentic-template-spreading-agent:latest'
+
+images:
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/agentic-template-spreading/agentic-template-spreading-agent:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
