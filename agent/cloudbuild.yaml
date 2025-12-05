@@ -6,9 +6,9 @@ steps:
       - 'build'
       - '-t'
       - 'us-central1-docker.pkg.dev/$PROJECT_ID/agentic-template-spreading/agentic-template-spreading-agent:latest'
-      - .
+      - agent
       - '-f'
-      - Dockerfile
+      - agent/Dockerfile
 
   # Push the container image to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
