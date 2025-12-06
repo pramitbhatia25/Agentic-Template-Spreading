@@ -132,11 +132,9 @@ sequenceDiagram
 - Google OAuth authentication
 - Request management and status polling
 - File download functionality
-- Excel file comparison (Diff feature)
 
 #### Key Features
 - **PDF Extraction Tab**: Upload template Excel and PDF files
-- **Excel Diff Tab**: Compare two Excel files cell-by-cell
 - Real-time request status updates (30-second polling)
 - Automatic Cloud Run job triggering after request creation
 
@@ -145,10 +143,9 @@ sequenceDiagram
 - `VITE_APP_GOOGLE_CLIENT_ID`: Google OAuth client ID
 
 #### Deployment
-- Built as static files and served via Nginx in Docker
+- Built as static files using Cloud Build and Docker
 - Deployed to Cloud Run as a service
-- Uses service account: `ats-deploy@agentic-template-spreading.iam.gserviceaccount.com`
-
+  
 ---
 
 ### 2. Server (Flask API)
@@ -369,22 +366,16 @@ graph LR
 - **Service Name**: Configurable via `_SERVICE_NAME` substitution
 - **Region**: `us-central1`
 - **Platform**: Managed
-- **Service Account**: `ats-deploy@agentic-template-spreading.iam.gserviceaccount.com`
-- **Image**: `us-central1-docker.pkg.dev/{PROJECT_ID}/agentic-template-spreading/agentic-template-spreading-client:latest`
 
 #### Server Service
 - **Service Name**: Configurable via `_SERVICE_NAME` substitution
 - **Region**: `us-central1`
 - **Platform**: Managed
-- **Service Account**: `ats-deploy@agentic-template-spreading.iam.gserviceaccount.com`
-- **Image**: `us-central1-docker.pkg.dev/{PROJECT_ID}/agentic-template-spreading/agentic-template-spreading-server:latest`
 
 ### Cloud Run Job
 
 #### Agent Job
 - **Job Name**: `agentic-template-spreading-agent` (configurable)
-- **Region**: `us-central1`
-- **Image**: `us-central1-docker.pkg.dev/{PROJECT_ID}/agentic-template-spreading/agentic-template-spreading-agent:latest`
 - **Execution**: On-demand via API trigger
 - **Environment Variable**: `REQUEST_ID` (passed at execution time)
 
@@ -422,8 +413,6 @@ Each component has its own `cloudbuild.yaml`:
 ### Client
 - **Framework**: React 18.3.1
 - **Build Tool**: Vite 5.2.0
-- **Styling**: TailwindCSS 4.1.7
-- **Icons**: Lucide React
 - **HTTP Client**: Fetch API
 - **Authentication**: Google OAuth (@react-oauth/google)
 - **Excel Processing**: xlsx 0.18.5 (for diff feature)
@@ -751,13 +740,6 @@ gcloud run deploy {service-name} \
 6. **Service Account**: `ats-deploy@agentic-template-spreading.iam.gserviceaccount.com`
 7. **OAuth Client**: For user authentication
 
-#### Required IAM Permissions
-- **Service Account** needs:
-  - Firestore: Read/Write access
-  - Storage: Read/Write access
-  - Cloud Run: Invoke jobs
-  - Cloud Run Jobs: Execute jobs
-
 ---
 
 ## Monitoring & Observability
@@ -805,3 +787,4 @@ gcloud run deploy {service-name} \
 - [ ] Export comparison reports
 - [ ] Multi-user collaboration
 - [ ] Request history and analytics
+
