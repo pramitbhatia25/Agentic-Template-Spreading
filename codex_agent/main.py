@@ -132,14 +132,17 @@ def codex_login_with_api_key(timeout_seconds: int = 30) -> bool:
 def run_codex_exec(workspace_dir: str, prompt: str) -> subprocess.CompletedProcess:
     """
     Run `codex exec` in the given workspace with the provided prompt.
-    Returns the CompletedProcess so caller can inspect stdout/stderr/returncode.
+    Streams stdout/stderr live so logs appear as Codex runs.
+
+    Returns a CompletedProcess-like object with returncode, stdout, and stderr.
     """
-    print(f"[CODEX EXEC] Working directory: {workspace_dir}")
-    print(f"[CODEX EXEC] Prompt:\n{prompt}")
+    print(f"[CODEX EXEC] Working directory: {workspace_dir}", flush=True)
+    print(f"[CODEX EXEC] Prompt:\n{prompt}", flush=True)
 
-    print("[CODEX EXEC] Running command: codex exec --yolo --skip-git-repo-check")
+    print("[CODEX EXEC] Running command: codex exec --yolo --skip-git-repo-check", flush=True)
 
-    result = subprocess.run(
+    # Use Popen so we can stream output line by line.
+    process = subprocess.Popen(
         [
             "codex",
             "exec",
@@ -148,18 +151,37 @@ def run_codex_exec(workspace_dir: str, prompt: str) -> subprocess.CompletedProce
             prompt,
         ],
         cwd=workspace_dir,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
+        bufsize=1,  # line-buffered
     )
 
-    print(result)
+    stdout_lines = []
+    stderr_lines = []
 
-    print("[CODEX EXEC] stdout:")
-    print(result.stdout)
-    print("[CODEX EXEC] stderr:")
-    print(result.stderr)
+    # Read stdout/stderr as the process runs
+    while True:
+        stdout_line = process.stdout.readline() if process.stdout else ""
+        stderr_line = process.stderr.readline() if process.stderr else ""
 
-    return result
+        if not stdout_line and not stderr_line and process.poll() is not None:
+            break
+
+        if stdout_line:
+            stdout_lines.append(stdout_line)
+            # Prefix to make it obvious this is Codex output
+            print(f"[CODEX EXEC][STDOUT] {stdout_line}", end="", flush=True)
+        if stderr_line:
+            stderr_lines.append(stderr_line)
+            print(f"[CODEX EXEC][STDERR] {stderr_line}", end="", flush=True)
+
+    return subprocess.CompletedProcess(
+        args=process.args,
+        returncode=process.returncode,
+        stdout="".join(stdout_lines),
+        stderr="".join(stderr_lines),
+    )
 
 
 def download_request_files(request_id: str, dest_dir: str) -> List[str]:
@@ -812,7 +834,7 @@ def process_request(request_id: str):
 
 
 if __name__ == "__main__":
-    print("[MAIN] Codex request demo: login, download request files, then run a Codex prompt.")
+    print("[MAIN] Codex request: login, download request files, convert template to JSON, then run Codex to produce solution.json.")
 
     # 1) Log Codex in using OPENAI_API_KEY (if available).
     if not codex_login_with_api_key():
@@ -845,17 +867,68 @@ if __name__ == "__main__":
         downloaded_files = download_request_files(request_id, workspace)
 
         if not downloaded_files:
-            print("[MAIN] No files downloaded for this request; nothing to list.")
+            print("[MAIN] No files downloaded for this request; nothing to process.")
             sys.exit(1)
 
-        codex_prompt = """
-You are running as `codex exec` in a non-interactive shell.
+        # Locate the template Excel file that was downloaded
+        print("[MAIN] Searching for template Excel file in downloaded files...")
+        template_excel_filename = None
+        for fname in downloaded_files:
+            # download_request_files saves the template as 'template.<ext>'
+            if fname.startswith("template."):
+                template_excel_filename = fname
+                break
 
-Tasks:
-1. Run `ls` in the current working directory.
-2. Print ONLY the names of the files currently in this directory, one per line.
-3. Do not create, modify, or delete any files.
-4. Do not print anything else (no explanations, headers, or comments).
+        if not template_excel_filename:
+            print("[MAIN] ERROR: Could not find template Excel file (expected a file starting with 'template.').")
+            print(f"[MAIN] Downloaded files were: {downloaded_files}")
+            sys.exit(1)
+
+        template_excel_path = os.path.join(workspace, template_excel_filename)
+        template_json_path = os.path.join(workspace, "template.json")
+
+        print(f"[MAIN] Converting template Excel '{template_excel_filename}' to JSON at '{template_json_path}'...")
+        try:
+            template_json = excel_to_json(template_excel_path, output_json_path=template_json_path)
+            print(f"[MAIN] Wrote template JSON to: {template_json_path}")
+            print(f"[MAIN] Template JSON contains {len(template_json)} rows.")
+        except Exception as e:
+            print(f"[MAIN] ERROR while converting template Excel to JSON: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
+
+        # Log the PDFs that Codex should use
+        pdf_files = [f for f in downloaded_files if f.lower().endswith(".pdf")]
+        print(f"[MAIN] PDF files available for Codex to read: {pdf_files}")
+
+        # Default Codex prompt: read template.json + PDFs, then write solution.json
+        codex_prompt = """
+You are an autonomous coding agent running under `codex exec` in a non-interactive shell.
+
+Your current working directory contains:
+- A financial template JSON file: `template.json`
+- One or more PDF files containing financial information (filenames end with `.pdf`).
+
+Your goal:
+1. Read `template.json`. It is a nested JSON structure where:
+   - Top-level keys are row names.
+   - Each value is an object whose keys are column names (typically years, e.g. "2022", "2023") and whose values are numbers or null.
+2. Read and interpret all PDF files in this directory (all files with the `.pdf` extension). Extract the financial data needed to populate the template.
+3. Produce a JSON object, `solution.json`, that has EXACTLY the same structure and keys as `template.json`:
+   - The same set of row-name keys.
+   - For each row, the same set of column-name keys.
+   - Values should be numbers when you can infer them from the PDFs; use null when a value is not available or cannot be inferred.
+4. Write the completed structure to a file named `solution.json` in the current working directory.
+
+Important details:
+- Do NOT modify `template.json` itself; only read from it.
+- Do all reasoning and extraction in your own environment; do not call any external web APIs.
+- You are allowed to install and use Python libraries or command-line tools within this workspace if that helps you parse PDFs or work with JSON.
+- Log useful progress messages to stdout so that the user can see what you are doing (e.g., when you start reading PDFs, when you finish, when you write `solution.json`).
+
+Final requirement:
+- When you are finished, ensure that a valid JSON file named `solution.json` exists in the current directory and contains the fully-populated data structure.
 """.strip()
 
         # Override with custom prompt if provided
@@ -863,10 +936,73 @@ Tasks:
             print("[MAIN] Custom Codex agent prompt detected; it will be used for codex exec.")
             codex_prompt = custom_prompt
         else:
-            print("[MAIN] No custom Codex prompt provided; using default prompt.")
+            print("[MAIN] No custom Codex prompt provided; using default Codex financial-extraction prompt.")
 
         result = run_codex_exec(workspace, codex_prompt)
 
         if result.returncode != 0:
             print(f"[MAIN] Codex exec exited with non-zero code: {result.returncode}")
             sys.exit(result.returncode)
+
+        # After Codex finishes, check whether solution.json was created
+        solution_json_path = os.path.join(workspace, "solution.json")
+        if os.path.exists(solution_json_path):
+            print(f"[MAIN] SUCCESS: Codex created solution file at: {solution_json_path}")
+            try:
+                with open(solution_json_path, "r", encoding="utf-8") as f:
+                    # Only show a small preview to avoid flooding logs
+                    content_preview = f.read(2048)
+                print("[MAIN] Preview of solution.json (first 2KB):")
+                print(content_preview)
+            except Exception as e:
+                print(f"[MAIN] WARNING: Could not read solution.json for preview: {e}")
+
+            # After validating solution.json exists, convert it to Excel and upload + mark completed.
+            print("[MAIN] Converting solution.json to Excel and uploading to Storage, then updating Firestore...", flush=True)
+            try:
+                # Load solution JSON structure
+                with open(solution_json_path, "r", encoding="utf-8") as f:
+                    solution_json = json.load(f)
+
+                # Create solution Excel in the same workspace
+                solution_excel_path = os.path.join(workspace, "solution.xlsx")
+                json_to_excel_template(solution_json, template_excel_path, solution_excel_path)
+                print(f"[MAIN] Created solution Excel at: {solution_excel_path}")
+
+                # Initialize clients
+                firestore_client = get_firestore_client()
+                storage_client = get_storage_client()
+                bucket_name = STORAGE_BUCKET.replace('gs://', '').strip()
+                bucket = storage_client.bucket(bucket_name)
+
+                # Upload solution.xlsx to Storage (same convention as agent: {request_id}/solution.xlsx)
+                solution_blob_path = f"{request_id}/solution.xlsx"
+                solution_blob = bucket.blob(solution_blob_path)
+                solution_blob.upload_from_filename(
+                    solution_excel_path,
+                    content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+                print(f"[MAIN] Uploaded solution Excel to: {solution_blob_path}")
+
+                # Update Firestore request status to completed
+                request_ref = firestore_client.collection("extraction_requests").document(request_id)
+                request_ref.update(
+                    {
+                        "status": "completed",
+                        "solution_blob_path": solution_blob_path,
+                        "updated_at": datetime.utcnow(),
+                    }
+                )
+                print(f"[MAIN] Marked Firestore request {request_id} as completed.")
+            except Exception as e:
+                print(f"[MAIN] ERROR while converting/uploading solution or updating Firestore: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            print("[MAIN] WARNING: Codex did not create solution.json in the workspace.")
+            print("[MAIN] Files currently in workspace directory:")
+            try:
+                print(os.listdir(workspace))
+            except Exception as e:
+                print(f"[MAIN] WARNING: Could not list workspace directory: {e}")
+
