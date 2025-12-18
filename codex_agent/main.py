@@ -129,23 +129,78 @@ def codex_login_with_api_key(timeout_seconds: int = 30) -> bool:
         return False
 
 
-def append_log_json(log_obj: Dict[str, Any], logs_file_path: str) -> None:
+def append_log_json(log_obj: Dict[str, Any], logs_file_path: str, request_id: str) -> None:
     """
-    Append a single log JSON object to the given logs file.
-    The file is written in NDJSON format (one JSON object per line).
+    Append a single log JSON object to the messages array in the structured logs file.
+    The file is a single JSON object with structure:
+    {
+        "request_id": "...",
+        "started_at": "...",
+        "messages": [...]
+    }
     """
     logs_dir = os.path.dirname(logs_file_path)
     if logs_dir and not os.path.exists(logs_dir):
         os.makedirs(logs_dir, exist_ok=True)
 
-    with open(logs_file_path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(log_obj, ensure_ascii=False, default=str) + "\n")
+    # Read existing logs or initialize new structure
+    if os.path.exists(logs_file_path):
+        try:
+            with open(logs_file_path, "r", encoding="utf-8") as f:
+                logs_data = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            # If file is corrupted or can't be read, start fresh
+            logs_data = {
+                "request_id": request_id,
+                "started_at": datetime.utcnow().isoformat() + "Z",
+                "messages": []
+            }
+    else:
+        # Initialize new logs structure
+        logs_data = {
+            "request_id": request_id,
+            "started_at": datetime.utcnow().isoformat() + "Z",
+            "messages": []
+        }
+
+    # Ensure request_id matches (in case it was changed)
+    logs_data["request_id"] = request_id
+
+    # Append the new message to the messages array
+    logs_data["messages"].append(log_obj)
+
+    # Write back the updated structure
+    with open(logs_file_path, "w", encoding="utf-8") as f:
+        json.dump(logs_data, f, indent=2, ensure_ascii=False, default=str)
+
+
+def update_logs_metadata(logs_file_path: str, **metadata: Any) -> None:
+    """
+    Update metadata fields in the logs file (e.g., completed_at, return_code, etc.).
+    """
+    if not os.path.exists(logs_file_path):
+        return
+
+    try:
+        with open(logs_file_path, "r", encoding="utf-8") as f:
+            logs_data = json.load(f)
+        
+        # Update metadata fields
+        for key, value in metadata.items():
+            logs_data[key] = value
+
+        # Write back the updated structure
+        with open(logs_file_path, "w", encoding="utf-8") as f:
+            json.dump(logs_data, f, indent=2, ensure_ascii=False, default=str)
+    except (json.JSONDecodeError, IOError) as e:
+        print(f"[LOGS] Warning: Could not update logs metadata: {e}")
 
 
 def run_codex_exec(
     workspace_dir: str,
     prompt: str,
     logs_file_path: Optional[str] = None,
+    request_id: Optional[str] = None,
 ) -> subprocess.CompletedProcess:
     """
     Run `codex exec` in the given workspace with the provided prompt.
@@ -185,6 +240,8 @@ def run_codex_exec(
 
         # If a logs file path is provided, push Codex exec output there as JSON.
         if logs_file_path:
+            if not request_id:
+                raise ValueError("request_id is required when logs_file_path is provided")
             stripped = line.rstrip("\n")
             if not stripped:
                 continue
@@ -194,7 +251,7 @@ def run_codex_exec(
             except json.JSONDecodeError:
                 # Fallback: wrap raw line in a simple JSON object.
                 log_obj = {"message": stripped}
-            append_log_json(log_obj, logs_file_path)
+            append_log_json(log_obj, logs_file_path, request_id)
         else:
             # Legacy behavior: just print to stdout when no logs file is provided.
             print(f"[CODEX EXEC] {line}", end="")
@@ -956,7 +1013,15 @@ Final requirement:
         # Path for logs.json inside the workspace; capture only Codex exec output there.
         logs_file_path = os.path.join(workspace, "logs.json")
 
-        result = run_codex_exec(workspace, codex_prompt, logs_file_path=logs_file_path)
+        result = run_codex_exec(workspace, codex_prompt, logs_file_path=logs_file_path, request_id=request_id)
+
+        # Update logs with completion metadata
+        if os.path.exists(logs_file_path):
+            update_logs_metadata(
+                logs_file_path,
+                completed_at=datetime.utcnow().isoformat() + "Z",
+                return_code=result.returncode
+            )
 
         if result.returncode != 0:
             print(f"[MAIN] Codex exec exited with non-zero code: {result.returncode}")
