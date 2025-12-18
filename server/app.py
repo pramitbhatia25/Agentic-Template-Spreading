@@ -29,8 +29,16 @@ GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "YOUR_GOOGLE_CLIENT_ID")
 FIREBASE_SERVICE_ACCOUNT = os.environ.get("FIREBASE_SERVICE_ACCOUNT")
 PROJECT_ID = os.environ.get("PROJECT_ID")
 STORAGE_BUCKET = os.environ.get("STORAGE_BUCKET")
+
+# Default Cloud Run job config (backwards compatibility)
 CLOUD_RUN_JOB_ID = os.environ.get("CLOUD_RUN_JOB_ID", "agentic-template-spreading-agent")
 CLOUD_RUN_LOCATION = os.environ.get("CLOUD_RUN_LOCATION", "us-central1")
+
+# Per-agent Cloud Run job config (from .env)
+AGENT_CLOUD_RUN_JOB_ID = os.environ.get("agent_cloud_run_job_id")
+AGENT_CLOUD_RUN_JOB_LOCATION = os.environ.get("agent_cloud_run_job_location")
+CODEX_AGENT_CLOUD_RUN_JOB_ID = os.environ.get("codex_agent_cloud_run_job_id")
+CODEX_AGENT_CLOUD_RUN_JOB_LOCATION = os.environ.get("codex_agent_cloud_run_job_location")
 
 def get_firestore_client():
     """Return Firestore client using service account JSON from env."""
@@ -128,6 +136,15 @@ def create_extraction_request():
         print(f"[POST /api/extract] Form fields present: {list(request.form.keys())}")
         for key in request.form.keys():
             print(f"[POST /api/extract] Form field '{key}': {request.form[key]}")
+
+        # Agent configuration
+        agent_type = (request.form.get('agent_type') or 'agent').strip().lower()
+        if agent_type not in ('agent', 'codex_agent'):
+            print(f"[POST /api/extract] ERROR: Invalid agent_type '{agent_type}'")
+            return jsonify({"error": "Invalid agent_type. Must be 'agent' or 'codex_agent'."}), 400
+
+        agent_prompt = (request.form.get('agent_prompt') or '').strip()
+        print(f"[POST /api/extract] Agent configuration - type: '{agent_type}', prompt length: {len(agent_prompt)}")
         
         # Check if files are present
         print(f"[POST /api/extract] Checking for template file in request...")
@@ -204,7 +221,9 @@ def create_extraction_request():
             'updated_at': created_at,
             'template_filename': template_file.filename,
             'pdf_filenames': [pdf.filename for pdf in pdf_files],
-            'pdf_count': len(pdf_files)
+            'pdf_count': len(pdf_files),
+            'agent_type': agent_type,
+            'agent_prompt': agent_prompt
         }
         print(f"[POST /api/extract] Creating Firestore document with data:")
         print(f"[POST /api/extract]   - user_email: {request_doc['user_email']}")
@@ -538,6 +557,8 @@ def get_user_requests():
                 'template_filename': template_filename,
                 'pdf_count': pdf_count,
                 'has_output': has_output,
+                'agent_type': data.get('agent_type', 'agent'),
+                'agent_prompt': data.get('agent_prompt', ''),
                 '_sort_key': created_at_ts  # Temporary field for sorting
             }
             requests.append(request_data)
@@ -651,7 +672,9 @@ def get_request_status(request_id):
             'template_filename': data.get('template_filename'),
             'pdf_count': data.get('pdf_count', 0),
             'pdf_filenames': data.get('pdf_filenames', []),
-            'has_output': has_output
+            'has_output': has_output,
+            'agent_type': data.get('agent_type', 'agent'),
+            'agent_prompt': data.get('agent_prompt', '')
         }
         
         print(f"[GET /api/requests/<request_id>] Request status: {response_data['status']}, has_output: {has_output}")
@@ -773,14 +796,39 @@ def trigger_cloud_run_job(request_id):
         if data.get('user_email') != email:
             return jsonify({"error": "Unauthorized"}), 403
         
+        # Determine agent configuration for this request
+        agent_type = (data.get('agent_type') or 'agent').strip().lower()
+        agent_prompt = (data.get('agent_prompt') or '').strip()
+        print(f"[POST /api/requests/<request_id>/trigger] Agent configuration for request:")
+        print(f"[POST /api/requests/<request_id>/trigger]   - agent_type: {agent_type}")
+        print(f"[POST /api/requests/<request_id>/trigger]   - agent_prompt length: {len(agent_prompt)}")
+
+        # Choose Cloud Run job ID and location based on agent_type
+        if agent_type == 'codex_agent':
+            job_id = CODEX_AGENT_CLOUD_RUN_JOB_ID or CLOUD_RUN_JOB_ID
+            job_location = CODEX_AGENT_CLOUD_RUN_JOB_LOCATION or CLOUD_RUN_LOCATION
+        else:
+            # Default to 'agent'
+            job_id = AGENT_CLOUD_RUN_JOB_ID or CLOUD_RUN_JOB_ID
+            job_location = AGENT_CLOUD_RUN_JOB_LOCATION or CLOUD_RUN_LOCATION
+
+        print(f"[POST /api/requests/<request_id>/trigger] Using Cloud Run job configuration:")
+        print(f"[POST /api/requests/<request_id>/trigger]   - job_id: {job_id}")
+        print(f"[POST /api/requests/<request_id>/trigger]   - job_location: {job_location}")
+        
         # Trigger Cloud Run job
         try:
-            # Create environment variable override for REQUEST_ID
-            env_var_override = EnvVar(name="REQUEST_ID", value=request_id)
+            # Create environment variable overrides
+            env_overrides = [
+                EnvVar(name="REQUEST_ID", value=request_id),
+                EnvVar(name="AGENT_TYPE", value=agent_type),
+            ]
+            if agent_prompt:
+                env_overrides.append(EnvVar(name="AGENT_PROMPT", value=agent_prompt))
             
-            # Create the container override with the environment variable
+            # Create the container override with the environment variables
             container_override = RunJobRequest.Overrides.ContainerOverride(
-                env=[env_var_override]
+                env=env_overrides
             )
             
             # Create the overrides object
@@ -789,7 +837,7 @@ def trigger_cloud_run_job(request_id):
             )
             
             # Create the RunJobRequest
-            job_name = f"projects/{PROJECT_ID}/locations/{CLOUD_RUN_LOCATION}/jobs/{CLOUD_RUN_JOB_ID}"
+            job_name = f"projects/{PROJECT_ID}/locations/{job_location}/jobs/{job_id}"
             run_job_request = RunJobRequest(
                 name=job_name,
                 overrides=overrides
@@ -803,6 +851,9 @@ def trigger_cloud_run_job(request_id):
             # Run the job
             print(f"[POST /api/requests/<request_id>/trigger] Triggering Cloud Run job: {job_name}")
             print(f"[POST /api/requests/<request_id>/trigger] REQUEST_ID override: {request_id}")
+            print(f"[POST /api/requests/<request_id>/trigger] AGENT_TYPE override: {agent_type}")
+            if agent_prompt:
+                print(f"[POST /api/requests/<request_id>/trigger] AGENT_PROMPT override length: {len(agent_prompt)}")
             operation = run_client.run_job(request=run_job_request)
             print(f"[POST /api/requests/<request_id>/trigger] Cloud Run job triggered successfully")
             
