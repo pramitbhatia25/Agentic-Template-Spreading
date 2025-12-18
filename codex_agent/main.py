@@ -812,7 +812,7 @@ def process_request(request_id: str):
 
 
 if __name__ == "__main__":
-    print("[MAIN] Codex request demo: login, download request files, then list them via Codex.")
+    print("[MAIN] Codex request demo: login, download request files, then run a Codex prompt.")
 
     # 1) Log Codex in using OPENAI_API_KEY (if available).
     if not codex_login_with_api_key():
@@ -823,13 +823,23 @@ if __name__ == "__main__":
         print("[MAIN] Codex CLI verification failed. Skipping downstream work.")
         sys.exit(1)
 
-    # 3) Get request_id from environment.
-    request_id = os.environ.get("REQUEST_ID")
+    # 3) Get request_id from CLI argument or environment variable.
+    if len(sys.argv) > 1:
+        request_id = sys.argv[1]
+    else:
+        request_id = os.environ.get("REQUEST_ID")
+
     if not request_id:
-        print("[MAIN] REQUEST_ID env var is required.")
+        print("[MAIN] REQUEST_ID must be provided as the first CLI argument or REQUEST_ID env var.")
         sys.exit(1)
 
-    # 4) Create a temporary workspace, download files, and ask Codex to list them.
+    # Optional custom Codex prompt: prefer CLI arg, then environment variable.
+    if len(sys.argv) > 2:
+        custom_prompt = sys.argv[2]
+    else:
+        custom_prompt = os.environ.get("AGENT_PROMPT")
+
+    # 4) Create a temporary workspace, download files, and run Codex with the chosen prompt.
     with tempfile.TemporaryDirectory() as workspace:
         print(f"[MAIN] Using workspace directory: {workspace}")
         downloaded_files = download_request_files(request_id, workspace)
@@ -848,9 +858,15 @@ Tasks:
 4. Do not print anything else (no explanations, headers, or comments).
 """.strip()
 
+        # Override with custom prompt if provided
+        if custom_prompt:
+            print("[MAIN] Custom Codex agent prompt detected; it will be used for codex exec.")
+            codex_prompt = custom_prompt
+        else:
+            print("[MAIN] No custom Codex prompt provided; using default prompt.")
+
         result = run_codex_exec(workspace, codex_prompt)
 
         if result.returncode != 0:
             print(f"[MAIN] Codex exec exited with non-zero code: {result.returncode}")
             sys.exit(result.returncode)
-

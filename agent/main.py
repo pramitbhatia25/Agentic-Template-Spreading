@@ -340,7 +340,8 @@ def create_simplified_schema(template_json: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def generate_solution_from_template_and_pdfs(template_json: Dict[str, Dict[str, Any]], 
-                                             pdf_data: Dict[str, Any] = None) -> Dict[str, Dict[str, Any]]:
+                                             pdf_data: Dict[str, Any] = None,
+                                             custom_prompt: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
     """
     Generate a solution JSON structure from template and parsed PDF data using Gemini API.
     
@@ -379,8 +380,9 @@ def generate_solution_from_template_and_pdfs(template_json: Dict[str, Dict[str, 
         # Extract row names to guide the LLM
         row_names_list = list(template_json.keys())
         row_names_str = "\n".join([f"- {name}" for name in row_names_list])
-        
-        prompt = f"""
+
+        # Base system instructions (default behavior)
+        instructions = f"""
         You are an expert financial analyst. Your task is to extract financial data from the provided documents and populate a structured JSON list.
         
         INSTRUCTIONS:
@@ -395,6 +397,15 @@ def generate_solution_from_template_and_pdfs(template_json: Dict[str, Dict[str, 
         
         REQUIRED ROWS TO EXTRACT:
         {row_names_str}
+        """
+
+        # Optional user-supplied prompt to augment behavior
+        if custom_prompt:
+            instructions = {custom_prompt}
+            print("Custom prompt detected; augmenting base instructions for LLM.")
+        
+        prompt = f"""
+        {instructions}
         
         DOCUMENT TEXT:
         {pdf_context[:50000]}
@@ -511,7 +522,7 @@ def parse_pdfs_from_bytes(pdf_bytes_list: List[Tuple[str, bytes]]) -> Dict[str, 
     return pdf_data
 
 
-def process_request(request_id: str):
+def process_request(request_id: str, custom_prompt: Optional[str] = None):
     """
     Main function to process an extraction request.
     
@@ -520,10 +531,10 @@ def process_request(request_id: str):
     2. Download template Excel and PDFs from Storage
     3. Parse template to JSON
     4. Parse PDFs to extract text
-    5. Generate solution JSON using LLM
+    5. Generate solution JSON using LLM (optionally using a custom prompt)
     6. Convert solution JSON to Excel using template structure
     7. Upload solution.xlsx to Storage
-    8. Update Firestore request status to 'completed'
+        8. Update Firestore request status to 'completed'
     
     Args:
         request_id: The Firestore document ID for the request
@@ -609,7 +620,11 @@ def process_request(request_id: str):
             
             # Step 3: Generate solution JSON
             print(f"[PROCESS] Step 3: Generating solution using LLM...")
-            generated_json = generate_solution_from_template_and_pdfs(template_json, pdf_data)
+            generated_json = generate_solution_from_template_and_pdfs(
+                template_json,
+                pdf_data,
+                custom_prompt=custom_prompt
+            )
             print(f"[PROCESS] Generated solution with {len(generated_json)} rows")
             
             # Step 4: Convert solution JSON to Excel
@@ -662,13 +677,27 @@ if __name__ == "__main__":
     if not request_id:
         print("ERROR: REQUEST_ID must be provided as command line argument or environment variable")
         sys.exit(1)
+
+    # Optional custom prompt: prefer CLI arg, then environment variable
+    custom_prompt = None
+    if len(sys.argv) > 2:
+        # Second CLI argument is treated as the custom prompt
+        custom_prompt = sys.argv[2]
+    else:
+        # Fallback to environment variable if provided
+        custom_prompt = os.environ.get("AGENT_PROMPT")
+    
+    if custom_prompt:
+        print("[MAIN] Custom prompt detected; it will be used to guide LLM generation.")
+    else:
+        print("[MAIN] No custom prompt provided; using default LLM instructions.")
     
     print(f"[MAIN] Starting Cloud Run job for request: {request_id}")
     print(f"[MAIN] PROJECT_ID: {PROJECT_ID}")
     print(f"[MAIN] STORAGE_BUCKET: {STORAGE_BUCKET}")
     
     try:
-        process_request(request_id)
+        process_request(request_id, custom_prompt=custom_prompt)
         print(f"[MAIN] Job completed successfully for request: {request_id}")
         sys.exit(0)
     except Exception as e:
