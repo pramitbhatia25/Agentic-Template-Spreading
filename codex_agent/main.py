@@ -129,7 +129,24 @@ def codex_login_with_api_key(timeout_seconds: int = 30) -> bool:
         return False
 
 
-def run_codex_exec(workspace_dir: str, prompt: str) -> subprocess.CompletedProcess:
+def append_log_json(log_obj: Dict[str, Any], logs_file_path: str) -> None:
+    """
+    Append a single log JSON object to the given logs file.
+    The file is written in NDJSON format (one JSON object per line).
+    """
+    logs_dir = os.path.dirname(logs_file_path)
+    if logs_dir and not os.path.exists(logs_dir):
+        os.makedirs(logs_dir, exist_ok=True)
+
+    with open(logs_file_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(log_obj, ensure_ascii=False, default=str) + "\n")
+
+
+def run_codex_exec(
+    workspace_dir: str,
+    prompt: str,
+    logs_file_path: Optional[str] = None,
+) -> subprocess.CompletedProcess:
     """
     Run `codex exec` in the given workspace with the provided prompt.
     Streams stdout/stderr live so logs appear as Codex runs.
@@ -139,7 +156,10 @@ def run_codex_exec(workspace_dir: str, prompt: str) -> subprocess.CompletedProce
     print(f"[CODEX EXEC] Working directory: {workspace_dir}", flush=True)
     print(f"[CODEX EXEC] Prompt:\n{prompt}", flush=True)
 
-    print("[CODEX EXEC] Running command: codex exec --yolo --skip-git-repo-check --json", flush=True)
+    print(
+        "[CODEX EXEC] Running command: codex exec --yolo --skip-git-repo-check --json",
+        flush=True,
+    )
 
     # Use Popen so we can stream output line by line.
     process = subprocess.Popen(
@@ -162,8 +182,23 @@ def run_codex_exec(workspace_dir: str, prompt: str) -> subprocess.CompletedProce
 
     for line in process.stdout:
         stdout_lines.append(line)
-        print(f"[CODEX EXEC] {line}", end="")
-        sys.stdout.flush()
+
+        # If a logs file path is provided, push Codex exec output there as JSON.
+        if logs_file_path:
+            stripped = line.rstrip("\n")
+            if not stripped:
+                continue
+            try:
+                # Prefer to keep the original Codex JSON structure if the line is valid JSON.
+                log_obj = json.loads(stripped)
+            except json.JSONDecodeError:
+                # Fallback: wrap raw line in a simple JSON object.
+                log_obj = {"message": stripped}
+            append_log_json(log_obj, logs_file_path)
+        else:
+            # Legacy behavior: just print to stdout when no logs file is provided.
+            print(f"[CODEX EXEC] {line}", end="")
+            sys.stdout.flush()
 
     process.wait()
 
@@ -918,7 +953,10 @@ Final requirement:
         else:
             print("[MAIN] No custom Codex prompt provided; using default Codex financial-extraction prompt.")
 
-        result = run_codex_exec(workspace, codex_prompt)
+        # Path for logs.json inside the workspace; capture only Codex exec output there.
+        logs_file_path = os.path.join(workspace, "logs.json")
+
+        result = run_codex_exec(workspace, codex_prompt, logs_file_path=logs_file_path)
 
         if result.returncode != 0:
             print(f"[MAIN] Codex exec exited with non-zero code: {result.returncode}")
@@ -946,6 +984,16 @@ Final requirement:
                     content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 )
                 print(f"[MAIN] Uploaded solution Excel to: {solution_blob_path}")
+
+                # Upload logs.json to Storage alongside the solution, if it exists.
+                if os.path.exists(logs_file_path):
+                    logs_blob_path = f"{request_id}/logs.json"
+                    logs_blob = bucket.blob(logs_blob_path)
+                    logs_blob.upload_from_filename(
+                        logs_file_path,
+                        content_type="application/json",
+                    )
+                    print(f"[MAIN] Uploaded Codex exec logs to: {logs_blob_path}")
 
                 # Update Firestore request status to completed
                 request_ref = firestore_client.collection("extraction_requests").document(request_id)
