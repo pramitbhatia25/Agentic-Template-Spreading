@@ -139,7 +139,7 @@ def run_codex_exec(workspace_dir: str, prompt: str) -> subprocess.CompletedProce
     print(f"[CODEX EXEC] Working directory: {workspace_dir}", flush=True)
     print(f"[CODEX EXEC] Prompt:\n{prompt}", flush=True)
 
-    print("[CODEX EXEC] Running command: codex exec --yolo --skip-git-repo-check", flush=True)
+    print("[CODEX EXEC] Running command: codex exec --yolo --skip-git-repo-check --json", flush=True)
 
     # Use Popen so we can stream output line by line.
     process = subprocess.Popen(
@@ -148,13 +148,14 @@ def run_codex_exec(workspace_dir: str, prompt: str) -> subprocess.CompletedProce
             "exec",
             "--yolo",
             "--skip-git-repo-check",
+            "--json",
             prompt,
         ],
         cwd=workspace_dir,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        bufsize=1,  # line-buffered
+        bufsize=1,
     )
 
     stdout_lines = []
