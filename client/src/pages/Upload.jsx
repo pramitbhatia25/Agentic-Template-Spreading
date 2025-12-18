@@ -11,6 +11,8 @@ function Upload({ user }) {
   const [loadingRequests, setLoadingRequests] = useState(false);
   const [refreshingIds, setRefreshingIds] = useState(new Set());
   const [downloadingIds, setDownloadingIds] = useState(new Set());
+  const [agentType, setAgentType] = useState('agent');
+  const [agentPrompt, setAgentPrompt] = useState('');
 
   const VITE_APP_API_URL = import.meta.env.VITE_APP_API_URL;
 
@@ -166,6 +168,8 @@ function Upload({ user }) {
       pdfFiles.forEach(pdf => {
         formData.append('pdfs', pdf);
       });
+      formData.append('agent_type', agentType);
+      formData.append('agent_prompt', agentPrompt || '');
 
       const response = await fetch(`${VITE_APP_API_URL}/api/extract`, {
         method: 'POST',
@@ -207,6 +211,7 @@ function Upload({ user }) {
       // Reset form
       setTemplateFile(null);
       setPdfFiles([]);
+      setAgentPrompt('');
       // Reload requests to show the new one
       await loadRequests();
     } catch (err) {
@@ -383,6 +388,35 @@ function Upload({ user }) {
             )}
           </div>
 
+          {/* Agent Configuration */}
+          <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Agent Type
+              </label>
+              <select
+                value={agentType}
+                onChange={(e) => setAgentType(e.target.value)}
+                className="block w-full rounded-md border border-gray-300 bg-white py-2 px-3 text-sm shadow-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+              >
+                <option value="agent">Agent</option>
+                <option value="codex_agent">Codex Agent</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Agent Prompt (optional)
+              </label>
+              <textarea
+                value={agentPrompt}
+                onChange={(e) => setAgentPrompt(e.target.value)}
+                rows={3}
+                placeholder="Enter a custom prompt for this request..."
+                className="block w-full rounded-md border border-gray-300 bg-white py-2 px-3 text-sm shadow-sm focus:border-green-500 focus:ring-1 focus:ring-green-500 resize-none"
+              />
+            </div>
+          </div>
+
           {/* Error Message */}
           {error && (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
@@ -487,6 +521,10 @@ function Upload({ user }) {
                       <div className="text-sm text-gray-600 space-y-1">
                         <p>Template: {req.template_filename || 'N/A'}</p>
                         <p>PDFs: {req.pdf_count || 0}</p>
+                        <p>Agent: {req.agent_type || 'agent'}</p>
+                        {req.agent_prompt && (
+                          <p>Prompt: <span className="italic">{req.agent_prompt}</span></p>
+                        )}
                         <p>Created: {formatDate(req.created_at)}</p>
                         {(req.status === 'complete' || req.status === 'completed') && req.created_at && req.updated_at && (
                           <p className="text-green-700 font-medium">
