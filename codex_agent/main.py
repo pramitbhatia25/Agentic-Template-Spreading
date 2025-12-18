@@ -885,50 +885,39 @@ if __name__ == "__main__":
             sys.exit(1)
 
         template_excel_path = os.path.join(workspace, template_excel_filename)
-        template_json_path = os.path.join(workspace, "template.json")
-
-        print(f"[MAIN] Converting template Excel '{template_excel_filename}' to JSON at '{template_json_path}'...")
-        try:
-            template_json = excel_to_json(template_excel_path, output_json_path=template_json_path)
-            print(f"[MAIN] Wrote template JSON to: {template_json_path}")
-            print(f"[MAIN] Template JSON contains {len(template_json)} rows.")
-        except Exception as e:
-            print(f"[MAIN] ERROR while converting template Excel to JSON: {e}")
-            import traceback
-            traceback.print_exc()
-            sys.exit(1)
 
         # Log the PDFs that Codex should use
         pdf_files = [f for f in downloaded_files if f.lower().endswith(".pdf")]
         print(f"[MAIN] PDF files available for Codex to read: {pdf_files}")
 
-        # Default Codex prompt: read template.json + PDFs, then write solution.json
-        codex_prompt = """
+        # Default Codex prompt: read Excel template + PDFs, then write solution.xlsx
+        codex_prompt = f"""
 You are an autonomous coding agent running under `codex exec` in a non-interactive shell.
 
 Your current working directory contains:
-- A financial template JSON file: `template.json`
-- One or more PDF files containing financial information (filenames end with `.pdf`).
+- A financial template Excel file: `{template_excel_filename}`
+- One or more PDF files containing financial information (filenames end with `.pdf` in their names).
 
 Your goal:
-1. Read `template.json`. It is a nested JSON structure where:
-   - Top-level keys are row names.
-   - Each value is an object whose keys are column names (typically years, e.g. "2022", "2023") and whose values are numbers or null.
+1. Read the Excel template file `{template_excel_filename}`. Treat it as the authoritative template:
+   - The first non-empty row contains column headers.
+   - The first non-empty column in the data region contains row names.
+   - All formatting, row ordering, column ordering, and empty spacer rows/columns should be preserved.
 2. Read and interpret all PDF files in this directory (all files with the `.pdf` extension). Extract the financial data needed to populate the template.
-3. Produce a JSON object, `solution.json`, that has EXACTLY the same structure and keys as `template.json`:
-   - The same set of row-name keys.
-   - For each row, the same set of column-name keys.
-   - Values should be numbers when you can infer them from the PDFs; use null when a value is not available or cannot be inferred.
-4. Write the completed structure to a file named `solution.json` in the current working directory.
+3. Create a new Excel workbook `solution.xlsx` that is structurally identical to the template:
+   - Same sheets (if you create more than one), same rows, same columns, same labels.
+   - For every numeric cell that should be filled from the PDFs, write a numeric value when you can infer it from the PDFs; otherwise leave the cell blank.
+   - Do NOT change template labels, headings, or structure.
+4. Save the completed workbook to a file named `solution.xlsx` in the current working directory.
 
 Important details:
-- Do NOT modify `template.json` itself; only read from it.
+- Do NOT overwrite `{template_excel_filename}`; only read from it.
 - Do all reasoning and extraction in your own environment; do not call any external web APIs.
-- You are allowed to install and use Python libraries or command-line tools within this workspace if that helps you parse PDFs or work with JSON.
-- Log useful progress messages to stdout so that the user can see what you are doing (e.g., when you start reading PDFs, when you finish, when you write `solution.json`).
+- You are allowed to install and use Python libraries or command-line tools within this workspace if that helps you parse PDFs or work with Excel files (for example, Python with `pandas` or `openpyxl`).
+- Log useful progress messages to stdout so that the user can see what you are doing (e.g., when you start reading PDFs, when you finish, when you write `solution.xlsx`).
 
 Final requirement:
-- When you are finished, ensure that a valid JSON file named `solution.json` exists in the current directory and contains the fully-populated data structure.
+- When you are finished, ensure that a valid Excel file named `solution.xlsx` exists in the current directory and contains the fully-populated data.
 """.strip()
 
         # Override with custom prompt if provided
@@ -944,31 +933,14 @@ Final requirement:
             print(f"[MAIN] Codex exec exited with non-zero code: {result.returncode}")
             sys.exit(result.returncode)
 
-        # After Codex finishes, check whether solution.json was created
-        solution_json_path = os.path.join(workspace, "solution.json")
-        if os.path.exists(solution_json_path):
-            print(f"[MAIN] SUCCESS: Codex created solution file at: {solution_json_path}")
+        # After Codex finishes, check whether solution.xlsx was created
+        solution_excel_path = os.path.join(workspace, "solution.xlsx")
+        if os.path.exists(solution_excel_path):
+            print(f"[MAIN] SUCCESS: Codex created solution workbook at: {solution_excel_path}")
+
+            # Upload solution.xlsx to Storage and mark completed.
+            print("[MAIN] Uploading solution.xlsx to Storage, then updating Firestore...", flush=True)
             try:
-                with open(solution_json_path, "r", encoding="utf-8") as f:
-                    # Only show a small preview to avoid flooding logs
-                    content_preview = f.read(2048)
-                print("[MAIN] Preview of solution.json (first 2KB):")
-                print(content_preview)
-            except Exception as e:
-                print(f"[MAIN] WARNING: Could not read solution.json for preview: {e}")
-
-            # After validating solution.json exists, convert it to Excel and upload + mark completed.
-            print("[MAIN] Converting solution.json to Excel and uploading to Storage, then updating Firestore...", flush=True)
-            try:
-                # Load solution JSON structure
-                with open(solution_json_path, "r", encoding="utf-8") as f:
-                    solution_json = json.load(f)
-
-                # Create solution Excel in the same workspace
-                solution_excel_path = os.path.join(workspace, "solution.xlsx")
-                json_to_excel_template(solution_json, template_excel_path, solution_excel_path)
-                print(f"[MAIN] Created solution Excel at: {solution_excel_path}")
-
                 # Initialize clients
                 firestore_client = get_firestore_client()
                 storage_client = get_storage_client()
@@ -995,11 +967,11 @@ Final requirement:
                 )
                 print(f"[MAIN] Marked Firestore request {request_id} as completed.")
             except Exception as e:
-                print(f"[MAIN] ERROR while converting/uploading solution or updating Firestore: {e}")
+                print(f"[MAIN] ERROR while uploading solution or updating Firestore: {e}")
                 import traceback
                 traceback.print_exc()
         else:
-            print("[MAIN] WARNING: Codex did not create solution.json in the workspace.")
+            print("[MAIN] WARNING: Codex did not create solution.xlsx in the workspace.")
             print("[MAIN] Files currently in workspace directory:")
             try:
                 print(os.listdir(workspace))
