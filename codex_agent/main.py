@@ -153,35 +153,25 @@ def run_codex_exec(workspace_dir: str, prompt: str) -> subprocess.CompletedProce
         ],
         cwd=workspace_dir,
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
     )
 
     stdout_lines = []
-    stderr_lines = []
 
-    # Read stdout/stderr as the process runs
-    while True:
-        stdout_line = process.stdout.readline() if process.stdout else ""
-        stderr_line = process.stderr.readline() if process.stderr else ""
+    for line in process.stdout:
+        stdout_lines.append(line)
+        print(f"[CODEX EXEC] {line}", end="")
+        sys.stdout.flush()
 
-        if not stdout_line and not stderr_line and process.poll() is not None:
-            break
-
-        if stdout_line:
-            stdout_lines.append(stdout_line)
-            # Prefix to make it obvious this is Codex output
-            print(f"[CODEX EXEC][STDOUT] {stdout_line}", end="", flush=True)
-        if stderr_line:
-            stderr_lines.append(stderr_line)
-            print(f"[CODEX EXEC][STDERR] {stderr_line}", end="", flush=True)
+    process.wait()
 
     return subprocess.CompletedProcess(
         args=process.args,
         returncode=process.returncode,
         stdout="".join(stdout_lines),
-        stderr="".join(stderr_lines),
+        stderr=None,
     )
 
 
