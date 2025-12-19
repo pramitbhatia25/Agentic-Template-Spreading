@@ -1032,6 +1032,7 @@ Your goal:
 4. Save the completed workbook to a file named `solution.xlsx` in the current working directory.
 
 Important details:
+- Fetch as much information as is needed to completely populate the template. Do not make assumption or skip any information.
 - Do NOT overwrite `{template_excel_filename}`; only read from it.
 - Do all reasoning and extraction in your own environment; do not call any external web APIs.
 - You are allowed to install and use Python libraries or command-line tools within this workspace if that helps you parse PDFs or work with Excel files (for example, Python with `pandas` or `openpyxl`).
