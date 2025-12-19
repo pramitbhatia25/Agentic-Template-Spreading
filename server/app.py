@@ -774,6 +774,38 @@ def download_output(request_id):
         traceback.print_exc()
         return jsonify({"error": "Failed to download solution file"}), 500
 
+
+@app.route('/api/requests/<request_id>/logs', methods=['GET'])
+@require_token
+def get_request_logs(request_id):
+    """Return the latest logs.json for a request."""
+    try:
+        print(f"[GET /api/requests/<request_id>/logs] Request: {request_id}")
+        storage_client = get_storage_client()
+        bucket_name = STORAGE_BUCKET.replace('gs://', '').strip()
+        bucket = storage_client.bucket(bucket_name)
+        logs_blob_path = f"{request_id}/logs.json"
+        print(f"[GET /api/requests/<request_id>/logs] Fetching blob: {logs_blob_path}")
+        blob = bucket.blob(logs_blob_path)
+
+        if not blob.exists():
+            print(f"[GET /api/requests/<request_id>/logs] Logs blob not found")
+            return jsonify({
+                "request_id": request_id,
+                "messages": [],
+                "message": "Logs not yet available for this request"
+            }), 404
+
+        logs_text = blob.download_as_text()
+        logs_data = json.loads(logs_text)
+        print(f"[GET /api/requests/<request_id>/logs] Returning {len(logs_data.get('messages', []))} messages")
+        return jsonify(logs_data), 200
+    except Exception as e:
+        print(f"[GET /api/requests/<request_id>/logs] ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": "Failed to fetch logs"}), 500
+
 @app.route('/api/requests/<request_id>/trigger', methods=['POST'])
 @require_token
 def trigger_cloud_run_job(request_id):

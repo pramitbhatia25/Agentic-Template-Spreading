@@ -29,7 +29,7 @@ function Navbar({ onLogout, user, theme, onThemeChange }) {
         <div className="relative" ref={menuRef}>
           <button
             onClick={() => setMenuOpen(!menuOpen)}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
           >
             {userAvatar ? (
               <img
@@ -52,7 +52,7 @@ function Navbar({ onLogout, user, theme, onThemeChange }) {
                   setMenuOpen(false);
                   onLogout();
                 }}
-                className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2 cursor-pointer"
               >
                 <LogOut className="w-4 h-4" />
                 Logout
