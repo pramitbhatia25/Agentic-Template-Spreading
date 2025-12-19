@@ -129,61 +129,59 @@ def codex_login_with_api_key(timeout_seconds: int = 30) -> bool:
         return False
 
 
-def write_logs_to_file(logs_data: Dict[str, Any], logs_file_path: str) -> None:
+def write_logs_to_bucket(logs_data: Dict[str, Any], logs_blob_path: str, storage_client, bucket_name: str) -> None:
     """
-    Write the logs data structure to file and flush immediately.
+    Write the logs data structure directly to GCP Storage bucket.
     """
     start_time = datetime.utcnow()
-    print(f"[LOGS WRITE] Starting write to {logs_file_path} at {start_time.isoformat()}Z", flush=True)
+    print(f"[LOGS WRITE] Starting write to bucket blob {logs_blob_path} at {start_time.isoformat()}Z", flush=True)
     print(f"[LOGS WRITE] Messages count: {len(logs_data.get('messages', []))}", flush=True)
     
-    logs_dir = os.path.dirname(logs_file_path)
-    if logs_dir and not os.path.exists(logs_dir):
-        print(f"[LOGS WRITE] Creating directory: {logs_dir}", flush=True)
-        os.makedirs(logs_dir, exist_ok=True)
-
-    # Write the structure and flush immediately for real-time updates
     try:
-        print(f"[LOGS WRITE] Opening file for write...", flush=True)
-        with open(logs_file_path, "w", encoding="utf-8") as f:
-            print(f"[LOGS WRITE] Dumping JSON...", flush=True)
-            json.dump(logs_data, f, indent=2, ensure_ascii=False, default=str)
-            print(f"[LOGS WRITE] Flushing buffer...", flush=True)
-            f.flush()
-            try:
-                print(f"[LOGS WRITE] Syncing to disk...", flush=True)
-                os.fsync(f.fileno())  # Force write to disk
-                print(f"[LOGS WRITE] Sync complete", flush=True)
-            except (OSError, AttributeError) as e:
-                # fsync may not be available on all systems, but flush() should be sufficient
-                print(f"[LOGS WRITE] fsync failed (non-critical): {e}", flush=True)
+        bucket = storage_client.bucket(bucket_name)
+        blob = bucket.blob(logs_blob_path)
+        
+        # Convert logs data to JSON string
+        print(f"[LOGS WRITE] Serializing JSON...", flush=True)
+        json_str = json.dumps(logs_data, indent=2, ensure_ascii=False, default=str)
+        
+        # Upload directly to bucket
+        print(f"[LOGS WRITE] Uploading to bucket...", flush=True)
+        blob.upload_from_string(
+            json_str,
+            content_type="application/json"
+        )
         
         end_time = datetime.utcnow()
         duration = (end_time - start_time).total_seconds()
-        print(f"[LOGS WRITE] Write completed in {duration:.4f}s at {end_time.isoformat()}Z", flush=True)
+        print(f"[LOGS WRITE] Upload completed in {duration:.4f}s at {end_time.isoformat()}Z", flush=True)
     except Exception as e:
-        print(f"[LOGS WRITE] ERROR writing logs file: {e}", flush=True)
+        print(f"[LOGS WRITE] ERROR writing logs to bucket: {e}", flush=True)
         import traceback
         traceback.print_exc()
         raise
 
 
-def update_logs_metadata(logs_file_path: str, **metadata: Any) -> None:
+def update_logs_metadata(logs_blob_path: str, storage_client, bucket_name: str, **metadata: Any) -> None:
     """
-    Update metadata fields in the logs file (e.g., completed_at, return_code, etc.).
+    Update metadata fields in the logs blob in GCP Storage bucket (e.g., completed_at, return_code, etc.).
     """
-    print(f"[LOGS METADATA] Updating metadata for {logs_file_path}", flush=True)
+    print(f"[LOGS METADATA] Updating metadata for bucket blob {logs_blob_path}", flush=True)
     print(f"[LOGS METADATA] Metadata to update: {list(metadata.keys())}", flush=True)
-    
-    if not os.path.exists(logs_file_path):
-        print(f"[LOGS METADATA] Warning: Logs file does not exist: {logs_file_path}", flush=True)
-        return
 
     try:
-        print(f"[LOGS METADATA] Reading existing logs file...", flush=True)
-        with open(logs_file_path, "r", encoding="utf-8") as f:
-            logs_data = json.load(f)
-        print(f"[LOGS METADATA] Read {len(logs_data.get('messages', []))} messages", flush=True)
+        bucket = storage_client.bucket(bucket_name)
+        blob = bucket.blob(logs_blob_path)
+        
+        # Download existing logs if blob exists
+        if blob.exists():
+            print(f"[LOGS METADATA] Downloading existing logs blob...", flush=True)
+            logs_json_str = blob.download_as_text()
+            logs_data = json.loads(logs_json_str)
+            print(f"[LOGS METADATA] Read {len(logs_data.get('messages', []))} messages", flush=True)
+        else:
+            print(f"[LOGS METADATA] Warning: Logs blob does not exist, creating new structure", flush=True)
+            logs_data = {"messages": []}
         
         # Update metadata fields
         for key, value in metadata.items():
@@ -191,10 +189,10 @@ def update_logs_metadata(logs_file_path: str, **metadata: Any) -> None:
             logs_data[key] = value
 
         # Write back the updated structure using the same write function
-        print(f"[LOGS METADATA] Writing updated metadata...", flush=True)
-        write_logs_to_file(logs_data, logs_file_path)
+        print(f"[LOGS METADATA] Writing updated metadata to bucket...", flush=True)
+        write_logs_to_bucket(logs_data, logs_blob_path, storage_client, bucket_name)
         print(f"[LOGS METADATA] Metadata update completed", flush=True)
-    except (json.JSONDecodeError, IOError) as e:
+    except Exception as e:
         print(f"[LOGS METADATA] ERROR: Could not update logs metadata: {e}", flush=True)
         import traceback
         traceback.print_exc()
@@ -203,8 +201,10 @@ def update_logs_metadata(logs_file_path: str, **metadata: Any) -> None:
 def run_codex_exec(
     workspace_dir: str,
     prompt: str,
-    logs_file_path: Optional[str] = None,
+    logs_blob_path: Optional[str] = None,
     request_id: Optional[str] = None,
+    storage_client = None,
+    bucket_name: Optional[str] = None,
 ) -> subprocess.CompletedProcess:
     """
     Run `codex exec` in the given workspace with the provided prompt.
@@ -241,21 +241,23 @@ def run_codex_exec(
     
     # Initialize logs structure in memory if logging is enabled
     logs_data = None
-    if logs_file_path:
+    if logs_blob_path:
         print(f"[LOGS INIT] Initializing logs for request_id: {request_id}", flush=True)
-        print(f"[LOGS INIT] Logs file path: {logs_file_path}", flush=True)
+        print(f"[LOGS INIT] Logs blob path: {logs_blob_path}", flush=True)
         if not request_id:
-            raise ValueError("request_id is required when logs_file_path is provided")
+            raise ValueError("request_id is required when logs_blob_path is provided")
+        if not storage_client or not bucket_name:
+            raise ValueError("storage_client and bucket_name are required when logs_blob_path is provided")
         # Initialize logs structure in memory
         logs_data = {
             "request_id": request_id,
             "started_at": datetime.utcnow().isoformat() + "Z",
             "messages": []
         }
-        print(f"[LOGS INIT] Writing initial structure to file...", flush=True)
-        # Write initial structure to file
-        write_logs_to_file(logs_data, logs_file_path)
-        print(f"[LOGS INIT] Initial structure written", flush=True)
+        print(f"[LOGS INIT] Writing initial structure to bucket...", flush=True)
+        # Write initial structure to bucket
+        write_logs_to_bucket(logs_data, logs_blob_path, storage_client, bucket_name)
+        print(f"[LOGS INIT] Initial structure written to bucket", flush=True)
 
     for line in process.stdout:
         stdout_lines.append(line)
@@ -264,8 +266,8 @@ def run_codex_exec(
         print(f"[CODEX EXEC] {line}", end="")
         sys.stdout.flush()
 
-        # If logging is enabled, append to in-memory structure and write immediately
-        if logs_file_path and logs_data is not None:
+        # If logging is enabled, append to in-memory structure and write immediately to bucket
+        if logs_blob_path and logs_data is not None:
             line_start_time = datetime.utcnow()
             print(f"[LOGS APPEND] Processing line at {line_start_time.isoformat()}Z", flush=True)
             stripped = line.rstrip("\n")
@@ -286,9 +288,9 @@ def run_codex_exec(
             logs_data["messages"].append(log_obj)
             print(f"[LOGS APPEND] New count: {len(logs_data['messages'])}", flush=True)
             
-            # Write to disk immediately for real-time updates
-            print(f"[LOGS APPEND] Calling write_logs_to_file...", flush=True)
-            write_logs_to_file(logs_data, logs_file_path)
+            # Write to bucket immediately for real-time updates
+            print(f"[LOGS APPEND] Calling write_logs_to_bucket...", flush=True)
+            write_logs_to_bucket(logs_data, logs_blob_path, storage_client, bucket_name)
             line_end_time = datetime.utcnow()
             line_duration = (line_end_time - line_start_time).total_seconds()
             print(f"[LOGS APPEND] Line processing completed in {line_duration:.4f}s", flush=True)
@@ -1046,18 +1048,28 @@ Final requirement:
         else:
             print("[MAIN] No custom Codex prompt provided; using default Codex financial-extraction prompt.")
 
-        # Path for logs.json inside the workspace; capture only Codex exec output there.
-        logs_file_path = os.path.join(workspace, "logs.json")
+        # Initialize storage clients for real-time logging to bucket
+        storage_client = get_storage_client()
+        bucket_name = STORAGE_BUCKET.replace('gs://', '').strip()
+        logs_blob_path = f"{request_id}/logs.json"
 
-        result = run_codex_exec(workspace, codex_prompt, logs_file_path=logs_file_path, request_id=request_id)
+        result = run_codex_exec(
+            workspace, 
+            codex_prompt, 
+            logs_blob_path=logs_blob_path, 
+            request_id=request_id,
+            storage_client=storage_client,
+            bucket_name=bucket_name
+        )
 
-        # Update logs with completion metadata
-        if os.path.exists(logs_file_path):
-            update_logs_metadata(
-                logs_file_path,
-                completed_at=datetime.utcnow().isoformat() + "Z",
-                return_code=result.returncode
-            )
+        # Update logs with completion metadata in bucket
+        update_logs_metadata(
+            logs_blob_path,
+            storage_client,
+            bucket_name,
+            completed_at=datetime.utcnow().isoformat() + "Z",
+            return_code=result.returncode
+        )
 
         if result.returncode != 0:
             print(f"[MAIN] Codex exec exited with non-zero code: {result.returncode}")
@@ -1086,15 +1098,9 @@ Final requirement:
                 )
                 print(f"[MAIN] Uploaded solution Excel to: {solution_blob_path}")
 
-                # Upload logs.json to Storage alongside the solution, if it exists.
-                if os.path.exists(logs_file_path):
-                    logs_blob_path = f"{request_id}/logs.json"
-                    logs_blob = bucket.blob(logs_blob_path)
-                    logs_blob.upload_from_filename(
-                        logs_file_path,
-                        content_type="application/json",
-                    )
-                    print(f"[MAIN] Uploaded Codex exec logs to: {logs_blob_path}")
+                # Logs are already in the bucket (written in real-time during execution)
+                logs_blob_path = f"{request_id}/logs.json"
+                print(f"[MAIN] Logs were streamed to bucket during execution: {logs_blob_path}")
 
                 # Update Firestore request status to completed
                 request_ref = firestore_client.collection("extraction_requests").document(request_id)
