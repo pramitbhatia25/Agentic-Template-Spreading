@@ -133,40 +133,71 @@ def write_logs_to_file(logs_data: Dict[str, Any], logs_file_path: str) -> None:
     """
     Write the logs data structure to file and flush immediately.
     """
+    start_time = datetime.utcnow()
+    print(f"[LOGS WRITE] Starting write to {logs_file_path} at {start_time.isoformat()}Z", flush=True)
+    print(f"[LOGS WRITE] Messages count: {len(logs_data.get('messages', []))}", flush=True)
+    
     logs_dir = os.path.dirname(logs_file_path)
     if logs_dir and not os.path.exists(logs_dir):
+        print(f"[LOGS WRITE] Creating directory: {logs_dir}", flush=True)
         os.makedirs(logs_dir, exist_ok=True)
 
     # Write the structure and flush immediately for real-time updates
-    with open(logs_file_path, "w", encoding="utf-8") as f:
-        json.dump(logs_data, f, indent=2, ensure_ascii=False, default=str)
-        f.flush()
-        try:
-            os.fsync(f.fileno())  # Force write to disk
-        except (OSError, AttributeError):
-            # fsync may not be available on all systems, but flush() should be sufficient
-            pass
+    try:
+        print(f"[LOGS WRITE] Opening file for write...", flush=True)
+        with open(logs_file_path, "w", encoding="utf-8") as f:
+            print(f"[LOGS WRITE] Dumping JSON...", flush=True)
+            json.dump(logs_data, f, indent=2, ensure_ascii=False, default=str)
+            print(f"[LOGS WRITE] Flushing buffer...", flush=True)
+            f.flush()
+            try:
+                print(f"[LOGS WRITE] Syncing to disk...", flush=True)
+                os.fsync(f.fileno())  # Force write to disk
+                print(f"[LOGS WRITE] Sync complete", flush=True)
+            except (OSError, AttributeError) as e:
+                # fsync may not be available on all systems, but flush() should be sufficient
+                print(f"[LOGS WRITE] fsync failed (non-critical): {e}", flush=True)
+        
+        end_time = datetime.utcnow()
+        duration = (end_time - start_time).total_seconds()
+        print(f"[LOGS WRITE] Write completed in {duration:.4f}s at {end_time.isoformat()}Z", flush=True)
+    except Exception as e:
+        print(f"[LOGS WRITE] ERROR writing logs file: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+        raise
 
 
 def update_logs_metadata(logs_file_path: str, **metadata: Any) -> None:
     """
     Update metadata fields in the logs file (e.g., completed_at, return_code, etc.).
     """
+    print(f"[LOGS METADATA] Updating metadata for {logs_file_path}", flush=True)
+    print(f"[LOGS METADATA] Metadata to update: {list(metadata.keys())}", flush=True)
+    
     if not os.path.exists(logs_file_path):
+        print(f"[LOGS METADATA] Warning: Logs file does not exist: {logs_file_path}", flush=True)
         return
 
     try:
+        print(f"[LOGS METADATA] Reading existing logs file...", flush=True)
         with open(logs_file_path, "r", encoding="utf-8") as f:
             logs_data = json.load(f)
+        print(f"[LOGS METADATA] Read {len(logs_data.get('messages', []))} messages", flush=True)
         
         # Update metadata fields
         for key, value in metadata.items():
+            print(f"[LOGS METADATA] Setting {key} = {value}", flush=True)
             logs_data[key] = value
 
         # Write back the updated structure using the same write function
+        print(f"[LOGS METADATA] Writing updated metadata...", flush=True)
         write_logs_to_file(logs_data, logs_file_path)
+        print(f"[LOGS METADATA] Metadata update completed", flush=True)
     except (json.JSONDecodeError, IOError) as e:
-        print(f"[LOGS] Warning: Could not update logs metadata: {e}")
+        print(f"[LOGS METADATA] ERROR: Could not update logs metadata: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
 
 
 def run_codex_exec(
@@ -211,6 +242,8 @@ def run_codex_exec(
     # Initialize logs structure in memory if logging is enabled
     logs_data = None
     if logs_file_path:
+        print(f"[LOGS INIT] Initializing logs for request_id: {request_id}", flush=True)
+        print(f"[LOGS INIT] Logs file path: {logs_file_path}", flush=True)
         if not request_id:
             raise ValueError("request_id is required when logs_file_path is provided")
         # Initialize logs structure in memory
@@ -219,8 +252,10 @@ def run_codex_exec(
             "started_at": datetime.utcnow().isoformat() + "Z",
             "messages": []
         }
+        print(f"[LOGS INIT] Writing initial structure to file...", flush=True)
         # Write initial structure to file
         write_logs_to_file(logs_data, logs_file_path)
+        print(f"[LOGS INIT] Initial structure written", flush=True)
 
     for line in process.stdout:
         stdout_lines.append(line)
@@ -231,21 +266,32 @@ def run_codex_exec(
 
         # If logging is enabled, append to in-memory structure and write immediately
         if logs_file_path and logs_data is not None:
+            line_start_time = datetime.utcnow()
+            print(f"[LOGS APPEND] Processing line at {line_start_time.isoformat()}Z", flush=True)
             stripped = line.rstrip("\n")
             if not stripped:
+                print(f"[LOGS APPEND] Skipping empty line", flush=True)
                 continue
             try:
                 # Prefer to keep the original Codex JSON structure if the line is valid JSON.
                 log_obj = json.loads(stripped)
+                print(f"[LOGS APPEND] Parsed JSON: {log_obj.get('type', 'unknown')}", flush=True)
             except json.JSONDecodeError:
                 # Fallback: wrap raw line in a simple JSON object.
                 log_obj = {"message": stripped}
+                print(f"[LOGS APPEND] Wrapped as message object", flush=True)
             
             # Append to in-memory structure
+            print(f"[LOGS APPEND] Appending to in-memory structure (current count: {len(logs_data['messages'])})", flush=True)
             logs_data["messages"].append(log_obj)
+            print(f"[LOGS APPEND] New count: {len(logs_data['messages'])}", flush=True)
             
             # Write to disk immediately for real-time updates
+            print(f"[LOGS APPEND] Calling write_logs_to_file...", flush=True)
             write_logs_to_file(logs_data, logs_file_path)
+            line_end_time = datetime.utcnow()
+            line_duration = (line_end_time - line_start_time).total_seconds()
+            print(f"[LOGS APPEND] Line processing completed in {line_duration:.4f}s", flush=True)
 
     process.wait()
 
