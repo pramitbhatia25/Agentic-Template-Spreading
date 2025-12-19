@@ -129,49 +129,23 @@ def codex_login_with_api_key(timeout_seconds: int = 30) -> bool:
         return False
 
 
-def append_log_json(log_obj: Dict[str, Any], logs_file_path: str, request_id: str) -> None:
+def write_logs_to_file(logs_data: Dict[str, Any], logs_file_path: str) -> None:
     """
-    Append a single log JSON object to the messages array in the structured logs file.
-    The file is a single JSON object with structure:
-    {
-        "request_id": "...",
-        "started_at": "...",
-        "messages": [...]
-    }
+    Write the logs data structure to file and flush immediately.
     """
     logs_dir = os.path.dirname(logs_file_path)
     if logs_dir and not os.path.exists(logs_dir):
         os.makedirs(logs_dir, exist_ok=True)
 
-    # Read existing logs or initialize new structure
-    if os.path.exists(logs_file_path):
-        try:
-            with open(logs_file_path, "r", encoding="utf-8") as f:
-                logs_data = json.load(f)
-        except (json.JSONDecodeError, IOError):
-            # If file is corrupted or can't be read, start fresh
-            logs_data = {
-                "request_id": request_id,
-                "started_at": datetime.utcnow().isoformat() + "Z",
-                "messages": []
-            }
-    else:
-        # Initialize new logs structure
-        logs_data = {
-            "request_id": request_id,
-            "started_at": datetime.utcnow().isoformat() + "Z",
-            "messages": []
-        }
-
-    # Ensure request_id matches (in case it was changed)
-    logs_data["request_id"] = request_id
-
-    # Append the new message to the messages array
-    logs_data["messages"].append(log_obj)
-
-    # Write back the updated structure
+    # Write the structure and flush immediately for real-time updates
     with open(logs_file_path, "w", encoding="utf-8") as f:
         json.dump(logs_data, f, indent=2, ensure_ascii=False, default=str)
+        f.flush()
+        try:
+            os.fsync(f.fileno())  # Force write to disk
+        except (OSError, AttributeError):
+            # fsync may not be available on all systems, but flush() should be sufficient
+            pass
 
 
 def update_logs_metadata(logs_file_path: str, **metadata: Any) -> None:
@@ -189,9 +163,8 @@ def update_logs_metadata(logs_file_path: str, **metadata: Any) -> None:
         for key, value in metadata.items():
             logs_data[key] = value
 
-        # Write back the updated structure
-        with open(logs_file_path, "w", encoding="utf-8") as f:
-            json.dump(logs_data, f, indent=2, ensure_ascii=False, default=str)
+        # Write back the updated structure using the same write function
+        write_logs_to_file(logs_data, logs_file_path)
     except (json.JSONDecodeError, IOError) as e:
         print(f"[LOGS] Warning: Could not update logs metadata: {e}")
 
@@ -234,14 +207,30 @@ def run_codex_exec(
     )
 
     stdout_lines = []
+    
+    # Initialize logs structure in memory if logging is enabled
+    logs_data = None
+    if logs_file_path:
+        if not request_id:
+            raise ValueError("request_id is required when logs_file_path is provided")
+        # Initialize logs structure in memory
+        logs_data = {
+            "request_id": request_id,
+            "started_at": datetime.utcnow().isoformat() + "Z",
+            "messages": []
+        }
+        # Write initial structure to file
+        write_logs_to_file(logs_data, logs_file_path)
 
     for line in process.stdout:
         stdout_lines.append(line)
 
-        # If a logs file path is provided, push Codex exec output there as JSON.
-        if logs_file_path:
-            if not request_id:
-                raise ValueError("request_id is required when logs_file_path is provided")
+        # Always print to stdout for real-time viewing
+        print(f"[CODEX EXEC] {line}", end="")
+        sys.stdout.flush()
+
+        # If logging is enabled, append to in-memory structure and write immediately
+        if logs_file_path and logs_data is not None:
             stripped = line.rstrip("\n")
             if not stripped:
                 continue
@@ -251,11 +240,12 @@ def run_codex_exec(
             except json.JSONDecodeError:
                 # Fallback: wrap raw line in a simple JSON object.
                 log_obj = {"message": stripped}
-            append_log_json(log_obj, logs_file_path, request_id)
-        else:
-            # Legacy behavior: just print to stdout when no logs file is provided.
-            print(f"[CODEX EXEC] {line}", end="")
-            sys.stdout.flush()
+            
+            # Append to in-memory structure
+            logs_data["messages"].append(log_obj)
+            
+            # Write to disk immediately for real-time updates
+            write_logs_to_file(logs_data, logs_file_path)
 
     process.wait()
 
